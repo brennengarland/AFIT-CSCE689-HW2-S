@@ -30,6 +30,7 @@ PasswdMgr::~PasswdMgr() {
 
 bool PasswdMgr::checkUser(const char *name) {
    std::vector<uint8_t> passwd, salt;
+   std::cout << "Checking user\n";
 
    bool result = findUser(name, passwd, salt);
 
@@ -60,7 +61,8 @@ bool PasswdMgr::checkPasswd(const char *name, const char *passwd) {
       return false;
 
    hashArgon2(passhash, salt, passwd, &salt);
-
+   std::cout << "In Pass: " << passhash.at(0) << "\n"; 
+   std::cout << "Out Pass: " << passwd << "\n"; 
    if (userhash == passhash)
       return true;
 
@@ -104,7 +106,10 @@ bool PasswdMgr::changePasswd(const char *name, const char *passwd) {
 bool PasswdMgr::readUser(FileFD &pwfile, std::string &name, std::vector<uint8_t> &hash, std::vector<uint8_t> &salt)
 {
    // Insert your perfect code here!
-
+   pwfile.readStr(name);
+   pwfile.readBytes(hash, 32);
+   pwfile.readBytes(salt, 16);
+   
    return true;
 }
 
@@ -188,7 +193,9 @@ bool PasswdMgr::findUser(const char *name, std::vector<uint8_t> &hash, std::vect
 void PasswdMgr::hashArgon2(std::vector<uint8_t> &ret_hash, std::vector<uint8_t> &ret_salt, 
                            const char *in_passwd, std::vector<uint8_t> *in_salt) {
    // Hash those passwords!!!!
+   // argon2d_hash_raw(2, (1<<16), 1, in_passwd, strlen(in_passwd), in_salt, 16, &ret_hash, 32);
 
+   
 }
 
 /****************************************************************************************************
@@ -200,5 +207,9 @@ void PasswdMgr::hashArgon2(std::vector<uint8_t> &ret_hash, std::vector<uint8_t> 
 
 void PasswdMgr::addUser(const char *name, const char *passwd) {
    // Add those users!
+   if(!checkUser(name))
+   {
+      
+   }
 }
 

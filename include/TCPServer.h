@@ -1,11 +1,11 @@
 #ifndef TCPSERVER_H
 #define TCPSERVER_H
 
-#include <list>
-#include <memory>
+#pragma once
+
 #include "Server.h"
-#include "FileDesc.h"
-#include "TCPConn.h"
+#include <sys/socket.h>
+#include <fstream>
 
 class TCPServer : public Server 
 {
@@ -18,11 +18,9 @@ public:
    void shutdown();
 
 private:
-   // Class to manage the server socket
-   SocketFD _sockfd;
- 
-   // List of TCPConn objects to manage connections
-   std::list<std::unique_ptr<TCPConn>> _connlist;
+   int listener_sock;
+   // struct sockaddr_in address;
+
 
 };
 

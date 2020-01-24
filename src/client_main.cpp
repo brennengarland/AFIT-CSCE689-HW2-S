@@ -10,6 +10,7 @@
 #include <iostream>
 #include <getopt.h>
 #include "TCPClient.h"
+#include "exceptions.h"
 
 using namespace std; 
 

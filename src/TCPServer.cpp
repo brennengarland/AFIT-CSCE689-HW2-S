@@ -1,18 +1,27 @@
+#include "TCPServer.h"
+#include <stdexcept>
+#include <netinet/in.h> 
+#include "exceptions.h"
+#include <fcntl.h>
+#include <sys/time.h>
+#include "TCPConn.h"
+#include <map>
+#include <iostream>
+#include <sstream>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <netinet/in.h>
+#include <netinet/ip.h> 
 #include <arpa/inet.h>
 #include <unistd.h>
-#include <fcntl.h>
-#include <stdexcept>
-#include <strings.h>
-#include <vector>
-#include <iostream>
-#include <memory>
-#include <sstream>
-#include "TCPServer.h"
+#include <fstream>
 
-TCPServer::TCPServer(){ // :_server_log("server.log", 0) {
+/*
+Author: Brennen Garland
+Reference: https://beej.us/guide/bgnet/html, https://www.geeksforgeeks.org/socket-programming-in-cc-handling-multiple-clients-on-server-without-multi-threading/
+*/
+
+
+TCPServer::TCPServer() {
 }
 
 
@@ -27,18 +36,39 @@ TCPServer::~TCPServer() {
  *    Throws: socket_error for recoverable errors, runtime_error for unrecoverable types
  **********************************************************************************************/
 
-void TCPServer::bindSvr(const char *ip_addr, short unsigned int port) {
+void TCPServer::bindSvr(const char *ip_addr, short unsigned int port) 
+{
+    
+    struct sockaddr_in address;
+    // Create socket to listen for incoming connections
+    if((listener_sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+    {
+        // Unrecoverable: if we cannot obtain a socket, we cannot
+        // have a server.
+        throw std::runtime_error("Failed to create socket");
+    }
 
-   struct sockaddr_in servaddr;
+    // Set listener to Non-Blocking
+    fcntl(listener_sock, F_SETFL, O_NONBLOCK);
 
-   // _server_log.writeLog("Server started.");
-
-   // Set the socket to nonblocking
-   _sockfd.setNonBlocking();
-
-   // Load the socket information to prep for binding
-   _sockfd.bindFD(ip_addr, port);
- 
+    int opt = 1;
+    if(setsockopt(listener_sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0)
+    {
+        throw std::runtime_error("Failed to set socket options");
+    }
+    // Fill in address details such as port and IP for binding
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = inet_addr(ip_addr);
+    address.sin_port = htons( port );
+    // Bind listener to port
+    if(bind(listener_sock, (struct  sockaddr *)&address, sizeof(address)) < 0)
+    {
+        // Unrecoverable: if our listener socket does not bind, we do not have
+        // a server.
+        throw std::runtime_error("Binding error");
+    }
+    
+   
 }
 
 /**********************************************************************************************
@@ -49,72 +79,90 @@ void TCPServer::bindSvr(const char *ip_addr, short unsigned int port) {
  *    Throws: socket_error for recoverable errors, runtime_error for unrecoverable types
  **********************************************************************************************/
 
-void TCPServer::listenSvr() {
+void TCPServer::listenSvr() 
+{
+    // Two sets are needed, one for all sockets and another that will be modified by the read each time
+    fd_set all_sock, read_sock;
+    // Max sock will keep track of the socket range we need to be checking
+    int max_sock, new_sock;
+    // This keep tracks of the sockets and their TCPConn objects
+    std::map<int, TCPConn*> connections;
 
-   bool online = true;
-   timespec sleeptime;
-   sleeptime.tv_sec = 0;
-   sleeptime.tv_nsec = 100000000;
-   int num_read = 0;
+    // Start listening on one socket
+    if(listen(listener_sock, 2) < 0)
+    {
+        // Unrecoverable: a server must be able to listen
+        throw std::runtime_error("Hung Up on Listening");
+    }
 
-   // Start the server socket listening
-   _sockfd.listenFD(5);
+    // std::cout << "Started Listening..\n";
 
-    
-   while (online) {
-      struct sockaddr_in cliaddr;
-      socklen_t len = sizeof(cliaddr);
+    // Add this listener socket to our master list
+    FD_SET(listener_sock, &all_sock);
+    // Set as max socket until we find another
+    max_sock = listener_sock;
 
-      if (_sockfd.hasData()) {
-         TCPConn *new_conn = new TCPConn();
-         if (!new_conn->accept(_sockfd)) {
-            // _server_log.strerrLog("Data received on socket but failed to accept.");
-            continue;
-         }
-         std::cout << "***Got a connection***\n";
+    while(true)
+    {
+        // Read sock is modified by select so we must reset it each time
+        read_sock = all_sock;
+        // std::cout << "\nServer: Looping\n";
 
-         _connlist.push_back(std::unique_ptr<TCPConn>(new_conn));
+        if(select(max_sock+1, &read_sock, NULL, NULL, NULL) < 0)
+        {
+            // Unrecoverable: if we cannot find the socket, we wont be able
+            // to process any data
+            throw socket_error("Select error");
+        }
+        std::cout << "New Data!\n";
+        // Loop through all of our sockets and check which ones have data
+        for(int i=0; i <= max_sock; i++)
+        {
+            // If this socket is in the set of sockets that has data
+            if(FD_ISSET(i, &read_sock))
+            {
+                // New connection because the listener socket has data
+                if(i == listener_sock)
+                {
+                    std::cout << "New Connection!\n";
+                    TCPConn* new_conn = new TCPConn();
+                    if(new_conn->accept_conn(listener_sock) == false)
+                    {
+                        // Recoverable: Sometimes it may not accept a connection
+                        throw socket_error("Error: Accepting new Connection");
+                    }
 
-         // Get their IP Address string to use in logging
-         std::string ipaddr_str;
-         new_conn->getIPAddrStr(ipaddr_str);
+                    new_sock = new_conn->getSocket();
 
+                    if(new_sock > max_sock) {max_sock = new_sock;}
+                    // Add the new socket to our master list
+                    FD_SET(new_sock, &all_sock);
+                    connections.insert({new_sock, new_conn});
+                }
+                // Data from an existing connection
+                else
+                {
+                    std::cout << "Existing Connection\n";
+                    // Loop through our map of sockets and tcpconn objects
+                    for(auto const& [key, val] : connections)
+                    {
+                        if(key == i)
+                        {
+                            // If the connection is closed, clear it from our list
+                            val->handleConnection();
+                            if(!val->isConnected())
+                            {
+                                FD_CLR(key, &all_sock);
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
-         new_conn->sendText("Welcome to the CSCE 689 Server!\n");
+    }
 
-         // Change this later
-         new_conn->startAuthentication();
-      }
-
-      // Loop through our connections, handling them
-      std::list<std::unique_ptr<TCPConn>>::iterator tptr = _connlist.begin();
-      while (tptr != _connlist.end())
-      {
-         // If the user lost connection
-         if (!(*tptr)->isConnected()) {
-            // Log it
-
-            // Remove them from the connect list
-            tptr = _connlist.erase(tptr);
-            std::cout << "Connection disconnected.\n";
-            continue;
-         }
-
-         // Process any user inputs
-         (*tptr)->handleConnection();
-
-         // Increment our iterator
-         tptr++;
-      }
-
-      // So we're not chewing up CPU cycles unnecessarily
-      nanosleep(&sleeptime, NULL);
-   } 
-
-
-   
 }
-
 
 /**********************************************************************************************
  * shutdown - Cleanly closes the socket FD.
@@ -123,8 +171,6 @@ void TCPServer::listenSvr() {
  **********************************************************************************************/
 
 void TCPServer::shutdown() {
-
-   _sockfd.closeFD();
+    
+    close(listener_sock);
 }
-
-

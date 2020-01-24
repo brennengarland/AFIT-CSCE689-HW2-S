@@ -1,17 +1,19 @@
-#include <sys/types.h>
+#include "TCPClient.h"
+#include "exceptions.h"
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <iostream>
+#include <netdb.h> 
+#include <stdlib.h>
+#include <string.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-#include <stdexcept>
-#include <strings.h>
-#include <stropts.h>
-#include <string.h>
-#include <sys/select.h>
-#include <stdio.h>
-#include <stdexcept>
 
-#include "TCPClient.h"
+/*
+Author: Brennen Garland
+Reference: https://beej.us/guide/bgnet/html, https://www.geeksforgeeks.org/socket-programming-in-cc-handling-multiple-clients-on-server-without-multi-threading/
+*/
+
 
 
 /**********************************************************************************************
@@ -20,6 +22,8 @@
  **********************************************************************************************/
 
 TCPClient::TCPClient() {
+    std::cout << "Making Client\n";
+    if((sock_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0){throw socket_error("Failed to get socket");}
 }
 
 /**********************************************************************************************
@@ -38,10 +42,19 @@ TCPClient::~TCPClient() {
  *    Throws: socket_error exception if failed. socket_error is a child class of runtime_error
  **********************************************************************************************/
 
-void TCPClient::connectTo(const char *ip_addr, unsigned short port) {
-   if (!_sockfd.connectTo(ip_addr, port))
-      throw socket_error("TCP Connection failed!");
-
+void TCPClient::connectTo(const char *ip_addr, unsigned short port) 
+{
+    std::cout << "Preparing Connection\n";
+    struct sockaddr_in address;
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = inet_addr(ip_addr);
+    address.sin_port = htons( port );
+    std::cout << "Client: Connecting to server...\n";
+    if(connect(sock_fd, (struct  sockaddr *)&address, sizeof(address)) < 0)
+    {
+        shutdown(sock_fd, 2); 
+        throw socket_error("Connection error");
+    }
 }
 
 /**********************************************************************************************
@@ -53,52 +66,51 @@ void TCPClient::connectTo(const char *ip_addr, unsigned short port) {
  **********************************************************************************************/
 
 void TCPClient::handleConnection() {
-   
-   bool connected = true;
-   int sin_bufsize = 0;
-   ssize_t rsize = 0;
+    // std::cout << "Handling connection\n";
+    char msg[1000];
+    int rec_len;
+    bool conn = true;
+    while(conn)
+    {
+        if((rec_len = recv(sock_fd, msg, 1000, 0)) <= 0) {throw socket_error("Could not receive");}
+        // Add null character to string for security
+        msg[rec_len] = '\0';
+        // std::cout << "Received: " << rec_len << " bytes\n";
+        // std::cout << "Message:\n";
+        std::cout << msg;
+        bool cmd_valid = false;
+        while(!cmd_valid)
+        {
+            // std::cout << "Send Command: " << std::endl;
 
-   timespec sleeptime;
-   sleeptime.tv_sec = 0;
-   sleeptime.tv_nsec = 1000000;
+            std::string cmd;
+            std::getline(std::cin, cmd);
+            // std::cout <<  "Input: " << cmd << "\n";
+            // std::cout << "Size of Input: " << cmd.length() << std::endl;
+            
 
+            if(cmd == "exit")
+            {
+                conn = false;    
+            } else if(cmd.length() >= 20)
+            {
+                // Server inputs are very small and so anything to larger can be rejected by the client
+                std::cout << "Please enter a valid command. That was for too large!\n";
+            }
+            else
+            {   
+                int bytes_sent;
 
-   // Loop while we have a valid connection
-   while (connected) {
+                bytes_sent = send(sock_fd, cmd.c_str(), strlen(cmd.c_str()), 0);
+                // std::cout << "Sent: " << bytes_sent << " bytes\n";
+                cmd_valid = true;
 
-      // If the connection was closed, exit
-      if (!_sockfd.isOpen())
-         break;
+            }
+            
+        }
 
-      // Send any user input
-      if ((sin_bufsize = readStdin()) > 0)  {
-         std::string subbuf = _in_buf.substr(0, sin_bufsize+1);
-         _sockfd.writeFD(subbuf);
-         _in_buf.erase(0, sin_bufsize+1);
-      }
+    }
 
-      // Read any data from the socket and display to the screen and handle errors
-      std::string buf;
-      if (_sockfd.hasData()) {
-         if ((rsize = _sockfd.readFD(buf)) == -1) {
-            throw std::runtime_error("Read on client socket failed.");
-         }
-
-         // Select indicates data, but 0 bytes...usually because it's disconnected
-         if (rsize == 0) {
-            closeConn();
-            break;
-         }
-
-         // Display to the screen
-         if (rsize > 0) {
-            printf("%s", buf.c_str());
-            fflush(stdout);
-         }
-      }
-
-      nanosleep(&sleeptime, NULL);
-   }
 }
 
 /**********************************************************************************************
@@ -108,39 +120,7 @@ void TCPClient::handleConnection() {
  **********************************************************************************************/
 
 void TCPClient::closeConn() {
-    _sockfd.closeFD(); 
-}
-
-/******************************************************************************
- * readStdin - takes input from the user and stores it in a buffer. We only send
- *             the buffer after a carriage return
- *
- *    Return: 0 if not ready to send, buffer length if ready
- *****************************************************************************/
-int TCPClient::readStdin() {
-
-   if (!_stdin.hasData()) {
-      return 0;
-   }
-
-   // More input, get it and concat it to the buffer
-   std::string readbuf;
-   int amt_read;
-   if ((amt_read = _stdin.readFD(readbuf)) < 0) {
-      throw std::runtime_error("Read on stdin failed unexpectedly.");
-   }
-   
-   _in_buf += readbuf;
-
-   // Did we either fill up the buffer or is there a newline/carriage return?
-   int sendto;
-   if (_in_buf.length() >= stdin_bufsize)
-      sendto = _in_buf.length();
-   else if ((sendto = _in_buf.find("\n")) == std::string::npos) {
-      return 0;
-   }
-   
-   return sendto;
+    close(sock_fd);
 }
 
 
