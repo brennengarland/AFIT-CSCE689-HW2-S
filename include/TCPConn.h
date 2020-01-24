@@ -65,6 +65,7 @@ private:
    std::string username; // The username this connection is associated with
 
    std::string _inputbuf;
+   std::string ip_address;
 
    std::string password; // Used to store user input for changing passwords
    std::map<std::string, std::string> menu_def = 

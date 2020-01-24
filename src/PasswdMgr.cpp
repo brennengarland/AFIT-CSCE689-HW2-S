@@ -106,7 +106,8 @@ bool PasswdMgr::changePasswd(const char *name, const char *passwd) {
 bool PasswdMgr::readUser(FileFD &pwfile, std::string &name, std::vector<uint8_t> &hash, std::vector<uint8_t> &salt)
 {
    // Insert your perfect code here!
-   pwfile.readStr(name);
+   ssize_t read = pwfile.readStr(name);
+   if(read == 0) {return false;}
    pwfile.readBytes(hash, 32);
    pwfile.readBytes(salt, 16);
    
@@ -209,7 +210,7 @@ void PasswdMgr::addUser(const char *name, const char *passwd) {
    // Add those users!
    if(!checkUser(name))
    {
-      
+
    }
 }
 

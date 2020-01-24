@@ -48,6 +48,7 @@ bool TCPConn::accept_conn(int server)
         {
             std::cout << "White IP!\n";
             white_ip = true;
+            ip_address = std::string(ip);
         }
 
     }
@@ -97,6 +98,7 @@ void TCPConn::handleConnection()
 
     // Conver to the char array to string for security and ease of use
     std::string input(msg, strlen(msg));
+    std::stringstream log_txt;
     switch (mode)
     {
         case mode_type::usrname:
@@ -110,6 +112,10 @@ void TCPConn::handleConnection()
             {
                 sendText("Username not found. Diconnecting\n");
                 disconnect();
+                log_txt << "Username not found\n";
+                log_txt << "IP Address: " << ip_address << "\n";
+                log_txt << "Username: " << msg << "\n";   
+                log(log_txt.str());
             }
             break;
         case mode_type::psswd:
@@ -119,6 +125,10 @@ void TCPConn::handleConnection()
                 sendMenu();
                 mode = mode_type::menu_choice;
                 pwd_attempts = 0;
+                log_txt << "Succesful Login\n";
+                log_txt << "IP Address: " << ip_address << "\n";
+                log_txt << "Username: " << msg << "\n";   
+                log(log_txt.str());
             } else 
             {
                 if(pwd_attempts == 0)
@@ -129,6 +139,10 @@ void TCPConn::handleConnection()
                 {
                     sendText("Password was incorrect twice. Disconnecting\n");
                     disconnect();
+                    log_txt << "Incorrect Password Attempts\n";
+                    log_txt << "IP Address: " << ip_address << "\n";
+                    log_txt << "Username: " << username << "\n";   
+                    log(log_txt.str());
                 }
             }
             break;
