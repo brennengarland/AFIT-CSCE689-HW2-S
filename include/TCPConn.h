@@ -54,20 +54,19 @@ public:
 private:
 
 
-   enum mode_type {usrname, psswd, menu_choice};
+   enum mode_type {usrname, psswd, menu_choice, add_usr, psswd_chng};
    // Using an enum type allows for a nice switch statement on the commands and makes adding commands easier
    enum cmd_type {unkown, greeting, opt1, opt2, opt3, opt4, opt5, change_psswd, exit, menu, First = unkown};
 
-   mode_type mode = mode_type::menu_choice;
+   mode_type mode = mode_type::usrname;
 
    // SocketFD _connfd;
  
    std::string username; // The username this connection is associated with
-
-   std::string _inputbuf;
    std::string ip_address;
 
-   std::string password; // Used to store user input for changing passwords
+   std::string new_usr;
+   std::string new_pass; // Used to store user input for changing passwords
    std::map<std::string, std::string> menu_def = 
    {
       {"hello",   "Receive a greeting"},
@@ -122,7 +121,7 @@ private:
 
    };
 
-   bool cats, dogs, elephants;
+   bool cats = false, dogs = false, elephants = false;
    bool connected = true;
    PasswdMgr* pwdMgr;
 

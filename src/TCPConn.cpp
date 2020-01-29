@@ -21,27 +21,43 @@ Author: Brennen Garland
 Reference: https://beej.us/guide/bgnet/html, https://www.geeksforgeeks.org/socket-programming-in-cc-handling-multiple-clients-on-server-without-multi-threading/
 */
 
-TCPConn::TCPConn() {}
-
-bool TCPConn::accept_conn(int server)
-{
-    // std::cout << "Entered accept\n";
+TCPConn::TCPConn() {
+    
     // Random seed for our options
     srand(time(0));
 
-    pwdMgr = new PasswdMgr("user_pass.txt");
+    pwdMgr = new PasswdMgr("passwd");
+}
 
+
+/*******************************************************************************************
+ *  accept_conn - Accepts a connection, checks if it's a whitelisted IP, then prompts client
+ *                  for a username.
+ *
+ *    Params:  server - socket to accept
+ *
+ *    Returns: true if succesful connection, false if there was an error or the IP is not listed
+ *
+ *******************************************************************************************/
+bool TCPConn::accept_conn(int server)
+{
+    // Accept Client
     struct sockaddr_in client_addr;
     socklen_t addrsize = sizeof(client_addr);
     my_sock = accept(server, (struct sockaddr *) &client_addr, &addrsize );
 
-    if(my_sock < 0){ return false;}
+    if(my_sock < 0)
+        return false;
 
-    std::ifstream whitelist("whitelist.txt");
+    // Check if ip is whitelisted
+    std::ifstream whitelist("whitelist");
     std::string read_addr;
+    // Ip populated from client address to readable form
     char ip[INET_ADDRSTRLEN];
-    bool white_ip = false;
     inet_ntop(AF_INET,&(client_addr.sin_addr), ip, INET_ADDRSTRLEN);
+    
+    bool white_ip = false;
+    // Loop through file to check for IP of client
     while(std::getline(whitelist, read_addr))
     {
         if(read_addr == std::string(ip))
@@ -53,6 +69,7 @@ bool TCPConn::accept_conn(int server)
 
     }
     
+    // Log events in server log
     std::stringstream log_txt;
     if(!white_ip)
     {
@@ -63,28 +80,55 @@ bool TCPConn::accept_conn(int server)
         sendText("Username: ");
         log_txt << "Whitelisted IP connection\n";
     }
-
     log_txt << "IP Address: " << std::string(ip) << "\n";
     log(log_txt.str());
+    whitelist.close();
+
     mode = mode_type::usrname;
-    return white_ip;
+    return true;
 }
 
+
+/*******************************************************************************************
+ *  getSocket - returns the socket this TCPConn object uses
+ *
+ *    Params:  
+ *
+ *    Returns: socket
+ *
+ *******************************************************************************************/
 int TCPConn::getSocket()
 {
     return my_sock;
 }
 
+/*******************************************************************************************
+ *  handleConnection - reads the message available on the socket and deals with it according
+ *                      to the current mode
+ *
+ *    Params:  
+ *
+ *    Returns: 
+ *
+ *******************************************************************************************/
 void TCPConn::handleConnection()
 {
     char msg[20];
     int msg_len;
     msg_len = recv(my_sock, msg, 20, 0);
+
+    std::stringstream log_txt;
+
     // If we received a 0, the connection closed
     if( msg_len == 0 ) 
     {
-        // std::cout << "Client has disconnected automatically\n";
+        std::cout << "Client has disconnected automatically\n";
         disconnect();
+        log_txt << "User Disconnected\n";
+        log_txt << "IP Address: " << ip_address << "\n";
+        log_txt << "Username: " << msg << "\n";   
+        log(log_txt.str());
+        return;
     } else if(msg_len < 0)
     {
         // Recoverable: not uncommon for it to have a receive error
@@ -93,16 +137,12 @@ void TCPConn::handleConnection()
 
     // Add a null operator to the end of the message
     msg[msg_len] = '\0';
-    // std::cout << "Received Message: " << msg << "\n";
-    // std::cout << "Bytes received: " << strlen(msg) << "\n";
 
-    // Conver to the char array to string for security and ease of use
+    // Conver the char array to string for security and ease of use
     std::string input(msg, strlen(msg));
-    std::stringstream log_txt;
     switch (mode)
     {
         case mode_type::usrname:
-            // handleUser(input);
             if(pwdMgr->checkUser(msg))
             {
                 sendText("Password: ");
@@ -119,7 +159,7 @@ void TCPConn::handleConnection()
             }
             break;
         case mode_type::psswd:
-            
+            std::cout << "\nChecking Password\n";
             if(pwdMgr->checkPasswd(username.c_str(), msg))
             {
                 sendMenu();
@@ -127,7 +167,7 @@ void TCPConn::handleConnection()
                 pwd_attempts = 0;
                 log_txt << "Succesful Login\n";
                 log_txt << "IP Address: " << ip_address << "\n";
-                log_txt << "Username: " << msg << "\n";   
+                log_txt << "Username: " << username << "\n";   
                 log(log_txt.str());
             } else 
             {
@@ -146,8 +186,42 @@ void TCPConn::handleConnection()
                 }
             }
             break;
+        case mode_type::psswd_chng:
+            if(pwd_attempts == 2) {
+                if(pwdMgr->changePasswd(username.c_str(), msg))
+                {
+                    mode = mode_type::menu_choice;
+                    sendText("Password Changed!\n\n");
+                    pwd_attempts = 0;
+                } else
+                {
+                    mode = mode_type::menu_choice;
+                    sendText("Probblem changing password.\n\n");
+                    pwd_attempts = 0;
+                }
+
+            } else if(pwdMgr->checkPasswd(username.c_str(), msg))
+            {
+                if(pwd_attempts == 0)
+                {
+                    sendText("Please Enter Your Password a Second Time: ");
+                    pwd_attempts += 1;
+                } else if(pwd_attempts == 1) {
+                    sendText("Please enter your new password: ");
+                    pwd_attempts += 1;
+                }
+            } else
+            {
+                sendText("Wrong Password Entered!\n\nMenu Choice: ");
+                mode = mode_type::menu_choice;
+                pwd_attempts = 0;
+            }
+            break;
         case mode_type::menu_choice:
             handleMenu(input);
+            break;
+        case mode_type::add_usr:
+            addUser(input);
             break;
         default:
             sendText("Unrecognized error, try again!\n");
@@ -155,6 +229,14 @@ void TCPConn::handleConnection()
 
 }
 
+/*******************************************************************************************
+ *  sendText - sends a message to the connected client
+ *
+ *    Params:  msg - messageto send
+ *
+ *    Returns: number of bytes sent
+ *
+ *******************************************************************************************/
 int TCPConn::sendText(const char *msg)
 {
     // std::cout << "Sending msg\n";
@@ -164,9 +246,12 @@ int TCPConn::sendText(const char *msg)
     std::stringstream sendmsg;
     sendmsg << msg;
     // Check if the facts should be included
-    if(cats) { sendmsg << "Cat Fact: " << cat_facts.at(rand() % std::size(cat_facts)) << "\n";}
-    if(dogs) {sendmsg << "Dog Fact: " << dog_facts.at(rand() % std::size(dog_facts))  << "\n";}
-    if(elephants) { sendmsg << "Elephant Fact: " <<  elephant_facts.at(rand() % std::size(elephant_facts)) << "\n"; }
+    if(cats) { sendmsg << "Cat Fact: " << cat_facts.at(rand() % cat_facts.size()) << "\n";}
+    if(dogs) {sendmsg << "Dog Fact: " << dog_facts.at(rand() % dog_facts.size())  << "\n";}
+    if(elephants) { sendmsg << "Elephant Fact: " <<  elephant_facts.at(rand() % elephant_facts.size()) << "\n"; }
+
+    if(mode == menu_choice) {sendmsg << "Menu Choice: ";}
+
     msg_len = strlen(sendmsg.str().c_str());
     while(total_sent < msg_len)
     {
@@ -185,6 +270,14 @@ int TCPConn::sendText(const char *msg)
     return bytes_sent;
 }
 
+/*******************************************************************************************
+ *  sendMenu - arranges a string to display the menu to the user
+ *
+ *    Params:
+ *
+ *    Returns: 
+ *
+ *******************************************************************************************/
 void TCPConn::sendMenu()
 {
     std::stringstream menu_str;
@@ -198,84 +291,74 @@ void TCPConn::sendMenu()
     sendText(menu_str.str().c_str());
 }
 
+/*******************************************************************************************
+ *  disconnect - disconnect socket from client
+ *
+ *    Params:
+ *
+ *    Returns: 
+ *
+ *******************************************************************************************/
 void TCPConn::disconnect()
 {
-    shutdown(my_sock,2);
+    std::cout << "Disconnecting from client...\n";
+    close(my_sock);
     connected = false;
 }
 
-std::vector<std::string> TCPConn::parseCmd(const std::string msg)
-{
-    std::vector<std::string> cmds;
-    std::stringstream cmd;
-    // std::cout << "Character sequence start: \n";
-    for(auto charc : msg)
-    {
-        // std::cout << charc << "\n";
-        if(charc == '\n')
-        {
-            cmds.push_back(cmd.str());
-            cmd.str("");
-            cmd.clear();
-        }
-        cmd << charc;
-    }
-    // std::cout << "Commands: \n";
-    // for(auto command : cmds)
-    // {
-    //     std::cout << command << "\n";
-    // }
-
-    return cmds;
-}
-
+/*******************************************************************************************
+ *  addUser - arranges a string to display the menu to the user
+ *
+ *    Params: data - username or password 
+ *
+ *    Returns: 
+ *
+ *******************************************************************************************/
 void TCPConn::addUser(std::string data)
 {
-    std::cout << "Status Type: " << mode << std::endl;
-    if(mode == mode_type::menu_choice)
-    {
-        sendText("Please enter the username for the user you would like to add.\n");
-    } else if(mode == mode_type::usrname)
-    {   
-        sendText("Please enter password.\n");
-        username = data;
-    } else if(mode == mode_type::psswd)
-    {
-        data = hash(data);
-        std::cout << "Storing data!";
-        std::ofstream user_pass("user_info.txt", std::ios_base::app);
-
-        user_pass << username << "," << data << "\n";
-
-        user_pass.close();
-        sendText("User and Password saved!");
-    }
-
-}
-
-
-std::string TCPConn::hash(const std::string& password)
-{
-    std::cout << "Hashing...\n";
-    return password;
-}
-
-bool TCPConn::checkUser(const std::string& username)
-{
-    bool auth = false;
-    std::ifstream user("user_info.txt");
-    std::stringstream line;
-    // std::string username;
-    std::string password;
-    while(user.good())
-    {
-    //    getline(user, username);
-       std::cout << username;
-
-    }
+    if (pwdMgr->checkUser(data.c_str()))
+   {
+        mode = menu_choice; 
+        sendText("That user already has an account.");
+   } else
+   {
+       if(pwd_attempts == 0)
+       {
+           sendText("\nAdding user\nNew Password: ");
+           pwd_attempts += 1;
+           new_usr = data;
+       } else if(pwd_attempts == 1)
+       {
+            sendText("\nEnter the password again: ");
+            new_pass = data;
+            pwd_attempts += 1;
+       } else if(pwd_attempts == 2)
+       {
+           if(data == new_pass)
+           {
+               pwdMgr->addUser(new_usr.c_str(), data.c_str());
+               mode = menu_choice;
+               sendText("New user added!\n\n");
+               pwd_attempts = 0;
+           } else 
+           {
+               pwd_attempts = 1;
+               sendText("Passwords must match. Try again.\n\nPassword: ");
+           }
+       }
+        
+   }
 
 }
 
+/*******************************************************************************************
+ *  handleMenu - handle the cases for the different menu options
+ *
+ *    Params: input - user's menu choice
+ *
+ *    Returns: 
+ *
+ *******************************************************************************************/
 void TCPConn::handleMenu(const std::string& input)
 {
     // Set default state to unknown
@@ -290,6 +373,7 @@ void TCPConn::handleMenu(const std::string& input)
         cmd = val;
         }
     }
+    std::stringstream log_txt;
     switch(cmd)
     {
         case cmd_type::greeting:
@@ -299,10 +383,15 @@ void TCPConn::handleMenu(const std::string& input)
             sendMenu();
             break;
         case cmd_type::exit:
+            log_txt << "User Disconnected\n";
+            log_txt << "IP Address: " << ip_address << "\n";
+            log_txt << "Username: " << username << "\n";   
+            log(log_txt.str());
             disconnect();
             break;
         case cmd_type::change_psswd:
-            sendText("Changing Password...\n");
+            mode = mode_type::psswd_chng;
+            sendText("Password: ");
             break;
         case cmd_type::opt1:
             cats = true;
@@ -323,8 +412,11 @@ void TCPConn::handleMenu(const std::string& input)
             sendText("You've cancelled all of your facts!\n");
             break;
         case cmd_type::opt5:
-            addUser();
-            mode = mode_type::usrname;
+            cats = false;
+            dogs = false;
+            elephants = false;
+            mode = mode_type::add_usr;
+            sendText("Username: ");
             break;
         default:
             sendText("That didn't seem to be on the Menu! Take a gander at what we sent earlier and get back to me.\n");
@@ -333,48 +425,27 @@ void TCPConn::handleMenu(const std::string& input)
 
 }
 
+/*******************************************************************************************
+ *  isConnected - tells whether the server is connected to a client
+ *
+ *    Params:
+ *
+ *    Returns: a bool indicating the state of the connection
+ *
+ *******************************************************************************************/
 bool TCPConn::isConnected()
 {
     return connected;
 }
 
-void TCPConn::handleUser(const std::string& input)
-{
-    std::ifstream user_pass("user_pass.txt");   
-    std::string in_name, in_psswd;
-    bool user_found = false;
-    while(std::getline(user_pass, in_name, ','))
-    {
-        std::getline(user_pass, in_psswd);
-        std::cout << "Client Username: " << input << "\n";
-        std::cout << "Looped Username: " << in_name << "\n";
-        if(in_name == input)
-        {
-            std::cout << "Found username!\n";
-            username = in_name;
-            password = in_psswd;
-            user_found = true;
-        }
-    }
-
-    if(user_found == false)
-    {
-        sendText("Could not find your username!\n");
-        disconnect();
-    } else {
-        sendText("Password: ");
-    }
-}
-
-void TCPConn::handlePsswd(const std::string& input)
-{
-    if(pwd_attempts == 0)
-    {
-        // argon2_sal
-    }
-}
-
-
+/*******************************************************************************************
+ *  log - records info for th eserver
+ *
+ *    Params: information to record
+ *
+ *    Returns: 
+ *
+ *******************************************************************************************/
 void TCPConn::log(const std::string& input)
 {
     // Time and datestamp found on https://www.tutorialspoint.com/cplusplus/cpp_date_time.htm
@@ -387,5 +458,7 @@ void TCPConn::log(const std::string& input)
     log_file << "Date: " << 1900 + ltime->tm_year << " ";
     log_file << 1 + ltime->tm_mon << " " << ltime->tm_mday << "\n";
     log_file << input;
+    log_file.flush();
+    log_file.close();
 }
 

@@ -72,7 +72,6 @@ int main(int argc, char *argv[]) {
    }
 
    stdinFD.setEchoFD(true);
-
    pwm.addUser(username.c_str(), passwd2.c_str());
    cout << "User added.\n";
    

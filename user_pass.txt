@@ -1,6 +1,0 @@
-buffalo
-bill
-hello
-world
-mr
-worldwide

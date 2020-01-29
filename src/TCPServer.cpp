@@ -22,6 +22,7 @@ Reference: https://beej.us/guide/bgnet/html, https://www.geeksforgeeks.org/socke
 
 
 TCPServer::TCPServer() {
+    
 }
 
 
@@ -67,6 +68,18 @@ void TCPServer::bindSvr(const char *ip_addr, short unsigned int port)
         // a server.
         throw std::runtime_error("Binding error");
     }
+
+    std::fstream log_file("server.log", std::ios_base::app);
+    time_t now = time(0);
+    tm *ltime = localtime(&now);
+    log_file << "--------------------------------------" << "\n";
+    log_file << "Time: " << ltime->tm_hour << ":";
+    log_file << ltime->tm_min << ":" << ltime->tm_sec << "\n";
+    log_file << "Date: " << 1900 + ltime->tm_year << " ";
+    log_file << 1 + ltime->tm_mon << " " << ltime->tm_mday << "\n";
+    log_file << "Server Starting\n";
+    log_file << "IP Address: " << ip_addr << " Port: " << port << "\n";
+    log_file.close();
     
    
 }
@@ -132,12 +145,15 @@ void TCPServer::listenSvr()
                         throw socket_error("Error: Accepting new Connection");
                     }
 
-                    new_sock = new_conn->getSocket();
+                    if(new_conn->isConnected()){
+                        new_sock = new_conn->getSocket();
 
-                    if(new_sock > max_sock) {max_sock = new_sock;}
-                    // Add the new socket to our master list
-                    FD_SET(new_sock, &all_sock);
-                    connections.insert({new_sock, new_conn});
+                        if(new_sock > max_sock) {max_sock = new_sock;}
+                        // Add the new socket to our master list
+                        FD_SET(new_sock, &all_sock);
+                        connections.insert({new_sock, new_conn});
+
+                    }
                 }
                 // Data from an existing connection
                 else
@@ -150,9 +166,11 @@ void TCPServer::listenSvr()
                         {
                             // If the connection is closed, clear it from our list
                             val->handleConnection();
+                            std::cout << "Connection: " << val->isConnected() << "\n";
                             if(!val->isConnected())
                             {
                                 FD_CLR(key, &all_sock);
+                                connections.erase(key);
                             }
                         }
                     }

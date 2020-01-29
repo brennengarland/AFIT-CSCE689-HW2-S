@@ -6,6 +6,8 @@
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <unistd.h>
+#include <errno.h>
+#include <iostream>
 
 #include "FileDesc.h"
 #include "strfuncts.h"
@@ -322,10 +324,8 @@ FileFD::~FileFD() {
 
 bool FileFD::openFile(fd_file_type ftype) {
    int file_flags[] = {O_RDONLY, O_WRONLY, O_WRONLY | O_APPEND};
-
    if ((_fd = open(_filename.c_str(), file_flags[ftype])) == -1)
       return false;
-
    return true;
 }
 

@@ -72,7 +72,13 @@ void TCPClient::handleConnection() {
     bool conn = true;
     while(conn)
     {
-        if((rec_len = recv(sock_fd, msg, 1000, 0)) <= 0) {throw socket_error("Could not receive");}
+        if((rec_len = recv(sock_fd, msg, 1000, 0)) < 0) { 
+            throw socket_error("Could not receive");
+        } else if(rec_len == 0) {
+            std::cout << "\nServer Disconnected\n";
+            closeConn();
+            return;
+        }
         // Add null character to string for security
         msg[rec_len] = '\0';
         // std::cout << "Received: " << rec_len << " bytes\n";
@@ -89,10 +95,7 @@ void TCPClient::handleConnection() {
             // std::cout << "Size of Input: " << cmd.length() << std::endl;
             
 
-            if(cmd == "exit")
-            {
-                conn = false;    
-            } else if(cmd.length() >= 20)
+             if(cmd.length() >= 20)
             {
                 // Server inputs are very small and so anything to larger can be rejected by the client
                 std::cout << "Please enter a valid command. That was for too large!\n";
